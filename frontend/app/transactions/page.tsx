@@ -227,6 +227,8 @@ export default function TransactionsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -273,6 +275,41 @@ export default function TransactionsPage() {
       setLoading(false);
     }
   }, []);
+
+  const syncPendingTransactions = async () => {
+    if (isSyncing) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+    setError("");
+
+    try {
+      const data = await apiRequest("/api/transactions/sync", {
+        method: "POST",
+      });
+
+      if (!data?.success) {
+        throw new Error(
+          data?.message || "Unable to synchronize transactions."
+        );
+      }
+
+      setSyncMessage(
+        data.message || "Transactions synced successfully."
+      );
+
+      // Refresh the transaction list after synchronization.
+      await fetchTransactions();
+    } catch (err: unknown) {
+      setSyncMessage(
+        err instanceof Error
+          ? err.message
+          : "Transaction synchronization failed."
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     void fetchTransactions();
@@ -408,6 +445,34 @@ export default function TransactionsPage() {
             </div>
           </section>
         )}
+
+        {/* Offline transaction synchronization */}
+        <section className="px-6 pt-4">
+          <button
+            type="button"
+            onClick={() => void syncPendingTransactions()}
+            disabled={isSyncing || loading}
+            className="w-full rounded-xl bg-[#071b35] px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSyncing
+              ? "Syncing transactions..."
+              : "Sync Pending Transactions"}
+          </button>
+
+          {syncMessage && (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`mt-2 text-center text-sm ${
+                /failed|unable|error|invalid|not authorized/i.test(syncMessage)
+                  ? "text-red-600"
+                  : "text-green-600"
+              }`}
+            >
+              {syncMessage}
+            </p>
+          )}
+        </section>
 
         {/* Filters */}
         <section className="px-6 pt-5">
