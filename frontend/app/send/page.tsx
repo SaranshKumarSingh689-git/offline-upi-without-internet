@@ -40,54 +40,58 @@ export default function SendMoneyPage() {
   const [success, setSuccess] = useState("");
 
   // Find recipient using their UPI ID
-  const findRecipient = async () => {
-    const upiId = recipientInput.trim();
+const findRecipient = async () => {
+  const upiId = recipientInput.trim();
 
-    setError("");
-    setSuccess("");
-    setRecipient(null);
+  setError("");
+  setSuccess("");
+  setRecipient(null);
 
-    if (!upiId) {
-      setError("Please enter the recipient's UPI ID.");
-      return;
-    }
+  if (!upiId) {
+    setError("Please enter the recipient's UPI ID.");
+    return;
+  }
 
-    setIsFindingRecipient(true);
+  setIsFindingRecipient(true);
 
-    try {
-      const data = await apiRequest(
-        `/api/users/recipient?upiId=${encodeURIComponent(upiId)}`,
-        {
-          method: "GET",
-        }
-      );
-
-      if (!data?.user?._id) {
-        throw new Error(
-          data?.message || "Recipient not found. Please check the UPI ID."
-        );
+  try {
+    const data = await apiRequest(
+      `/api/users/recipient?upiId=${encodeURIComponent(upiId)}`,
+      {
+        method: "GET",
       }
+    );
 
-      setRecipient({
-        _id: data.user._id,
-        fullName: data.user.fullName,
-        upiId: data.user.upiId,
-      });
+    // The backend returns the recipient in data.recipient,
+    // not data.user.
+    const foundRecipient = data?.recipient;
 
-      setSuccess("Recipient verified successfully.");
-    } catch (err) {
-      setRecipient(null);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to find recipient."
+    if (!foundRecipient?._id) {
+      throw new Error(
+        data?.message ||
+          "Recipient not found. Please check the UPI ID."
       );
-    } finally {
-      setIsFindingRecipient(false);
     }
-  };
 
+    setRecipient({
+      _id: foundRecipient._id,
+      fullName: foundRecipient.fullName,
+      upiId: foundRecipient.upiId,
+    });
+
+    setSuccess("Recipient verified successfully.");
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Unable to find recipient. Please try again.";
+
+    setError(message);
+    setRecipient(null);
+  } finally {
+    setIsFindingRecipient(false);
+  }
+};
   // Send money through the backend
   const handlePayment = async () => {
     setError("");
