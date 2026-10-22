@@ -58,6 +58,7 @@ const avatarStyles = [
 ];
 
 function getId(value: UserInfo | string | undefined): string {
+
   if (!value) return "";
 
   if (typeof value === "string") {

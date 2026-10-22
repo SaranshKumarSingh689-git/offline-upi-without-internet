@@ -1,9 +1,13 @@
 "use client";
 
+import jsQR from "jsqr";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Html5Qrcode } from "html5-qrcode";
+import {
+  Html5Qrcode,
+  Html5QrcodeSupportedFormats,
+} from "html5-qrcode";
 import { QRCodeSVG } from "qrcode.react";
 import { apiRequest } from "@/lib/api";
 
@@ -15,15 +19,24 @@ type UserProfile = {
   upiId?: string;
 };
 
+/**
+ * Extract a UPI ID from:
+ * 1. upi://pay?pa=user@bank&pn=Name
+ * 2. A plain UPI ID such as user@bank
+ * 3. A URL containing pa or upiId parameters
+ */
 function extractUpiId(value: string): string | null {
   const input = value.trim();
+
   if (!input) return null;
 
-  // UPI payment URI, for example: upi://pay?pa=name@bank&pn=Name
   if (/^upi:\/\//i.test(input)) {
     try {
       const url = new URL(input);
-      const upiId = url.searchParams.get("pa") || url.searchParams.get("upiId");
+      const upiId =
+        url.searchParams.get("pa") ||
+        url.searchParams.get("upiId");
+
       return upiId && /^[\w.-]+@[\w.-]+$/.test(upiId.trim())
         ? upiId.trim()
         : null;
@@ -32,18 +45,22 @@ function extractUpiId(value: string): string | null {
     }
   }
 
-  // QR code containing only a UPI ID.
-  if (/^[\w.-]+@[\w.-]+$/.test(input)) return input;
+  if (/^[\w.-]+@[\w.-]+$/.test(input)) {
+    return input;
+  }
 
-  // URL-style QR code containing a pa or upiId query parameter.
   try {
     const url = new URL(input);
-    const upiId = url.searchParams.get("pa") || url.searchParams.get("upiId");
+
+    const upiId =
+      url.searchParams.get("pa") ||
+      url.searchParams.get("upiId");
+
     if (upiId && /^[\w.-]+@[\w.-]+$/.test(upiId.trim())) {
       return upiId.trim();
     }
   } catch {
-    // This value was not a valid URL or supported UPI URI.
+    // The decoded value was not a supported URL.
   }
 
   return null;
@@ -66,7 +83,7 @@ export default function ScanPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scanHandledRef = useRef(false);
 
-  // Load the logged-in user's profile for the My QR screen.
+  // Load the logged-in user's profile.
   useEffect(() => {
     let active = true;
 
@@ -76,7 +93,9 @@ export default function ScanPage() {
         const user = data?.user ?? data;
 
         if (!user?.upiId) {
-          throw new Error("Your account does not have a UPI ID configured.");
+          throw new Error(
+            "Your account does not have a UPI ID configured."
+          );
         }
 
         if (active) {
@@ -85,16 +104,21 @@ export default function ScanPage() {
             fullName: user.fullName,
             upiId: user.upiId,
           });
+
           setProfileError("");
         }
       } catch (error) {
         if (active) {
           setProfileError(
-            error instanceof Error ? error.message : "Unable to load your profile."
+            error instanceof Error
+              ? error.message
+              : "Unable to load your profile."
           );
         }
       } finally {
-        if (active) setProfileLoading(false);
+        if (active) {
+          setProfileLoading(false);
+        }
       }
     }
 
@@ -105,12 +129,15 @@ export default function ScanPage() {
     };
   }, []);
 
-  // Validate a decoded QR value and open Send Money with the recipient prefilled.
+  // Decode a QR value and open Send Money with the recipient prefilled.
   const handleDecodedValue = useCallback(
     (decodedText: string) => {
       if (scanHandledRef.current) return;
 
+      console.log("Decoded QR content:", decodedText);
+
       const upiId = extractUpiId(decodedText);
+
       if (!upiId) {
         setScanError(
           "This QR code does not contain a supported UPI ID. Try another QR code."
@@ -119,14 +146,17 @@ export default function ScanPage() {
       }
 
       scanHandledRef.current = true;
+
       setScanError("");
+      setCameraError("");
       setCameraStatus("QR code detected!");
+
       router.push(`/send?upiId=${encodeURIComponent(upiId)}`);
     },
     [router]
   );
 
-  // Start and stop the camera when the Scan QR tab is active.
+  // Start and stop the live camera scanner.
   useEffect(() => {
     if (mode !== "scan") return;
 
@@ -134,6 +164,7 @@ export default function ScanPage() {
     let scanner: Html5Qrcode | null = null;
 
     scanHandledRef.current = false;
+
     setCameraError("");
     setScanError("");
     setFlashOn(false);
@@ -141,7 +172,13 @@ export default function ScanPage() {
 
     async function startScanner() {
       try {
-        scanner = new Html5Qrcode("qr-reader");
+        scanner = new Html5Qrcode("qr-reader", {
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+          ],
+          verbose: false,
+        });
+
         scannerRef.current = scanner;
 
         await scanner.start(
@@ -151,31 +188,39 @@ export default function ScanPage() {
             qrbox: { width: 250, height: 250 },
             aspectRatio: 1,
           },
-          (decodedText) => handleDecodedValue(decodedText),
+          (decodedText) => {
+            handleDecodedValue(decodedText);
+          },
           () => {
-            // Ignore individual video frames where no QR code is detected.
+            // Ignore frames without a detectable QR code.
           }
         );
 
         if (cancelled) {
-          // The component may have changed tabs while camera startup was pending.
           try {
-            if (scanner.isScanning) await scanner.stop();
+            if (scanner.isScanning) {
+              await scanner.stop();
+            }
           } catch {
-            // The camera may already have stopped.
+            // Camera may already have stopped.
           }
+
           try {
             scanner.clear();
           } catch {
-            // The scanner DOM may already have been cleared.
+            // Scanner DOM may already have been cleared.
           }
+
           return;
         }
 
         setCameraStatus("Camera ready");
       } catch (error) {
         if (!cancelled) {
+          console.error("Camera scanner error:", error);
+
           setCameraStatus("Camera unavailable");
+
           setCameraError(
             error instanceof Error
               ? error.message
@@ -189,27 +234,26 @@ export default function ScanPage() {
 
     return () => {
       cancelled = true;
+
       const currentScanner = scanner;
 
       if (currentScanner) {
         if (currentScanner.isScanning) {
-          // stop() returns a Promise, so catch/finally can be used here.
           void currentScanner
             .stop()
             .catch(() => undefined)
             .finally(() => {
-              // clear() returns void; do not chain .catch() to it.
               try {
                 currentScanner.clear();
               } catch {
-                // It may already be cleared.
+                // Scanner may already have been cleared.
               }
             });
         } else {
           try {
             currentScanner.clear();
           } catch {
-            // It may already be cleared.
+            // Scanner may already have been cleared.
           }
         }
       }
@@ -220,12 +264,14 @@ export default function ScanPage() {
     };
   }, [mode, handleDecodedValue]);
 
-  // Attempt to toggle the camera torch on supported devices.
+  // Toggle the camera torch on supported devices.
   async function toggleFlash() {
     const scanner = scannerRef.current;
 
     if (!scanner?.isScanning) {
-      setCameraError("Start the camera before using the flashlight.");
+      setCameraError(
+        "Start the camera before using the flashlight."
+      );
       return;
     }
 
@@ -235,6 +281,7 @@ export default function ScanPage() {
       await scanner.applyVideoConstraints({
         advanced: [{ torch: nextValue } as MediaTrackConstraintSet],
       });
+
       setFlashOn(nextValue);
       setCameraError("");
     } catch {
@@ -244,68 +291,161 @@ export default function ScanPage() {
     }
   }
 
-  // Scan a QR code from an image selected by the user.
+  // Decode a QR code from an uploaded image using jsQR.
   async function handleImageUpload(
     event: React.ChangeEvent<HTMLInputElement>
   ) {
     const input = event.currentTarget;
     const file = input.files?.[0];
 
-    // Allow the same file to be selected again later.
+    // Allow the same file to be selected again.
     input.value = "";
+
     if (!file) return;
 
     setScanError("");
     setCameraError("");
 
-    const imageScanner = new Html5Qrcode("qr-file-reader");
+    if (!file.type.startsWith("image/")) {
+      setScanError("Please select a valid image file.");
+      return;
+    }
 
     try {
-      const decodedText = await imageScanner.scanFile(file, true);
-      handleDecodedValue(decodedText);
-    } catch {
-      setScanError(
-        "No readable QR code was found in that image. Try a clearer image."
-      );
-    } finally {
-      // clear() returns void; call it directly and catch synchronous errors.
+      const imageUrl = URL.createObjectURL(file);
+
       try {
-        imageScanner.clear();
-      } catch {
-        // The temporary scanner may already have been cleared.
+        const image = new Image();
+
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+
+          image.onerror = () => {
+            reject(
+              new Error(
+                "Unable to load the selected image. Try a PNG or JPEG image."
+              )
+            );
+          };
+
+          image.src = imageUrl;
+        });
+
+        if (!image.naturalWidth || !image.naturalHeight) {
+          throw new Error(
+            "The selected image has invalid dimensions."
+          );
+        }
+
+        console.table({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+        });
+
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", {
+          willReadFrequently: true,
+        });
+
+        if (!context) {
+          throw new Error(
+            "Unable to process the selected image."
+          );
+        }
+
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+
+        context.drawImage(image, 0, 0);
+
+        const imageData = context.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        const result = jsQR(
+          imageData.data,
+          imageData.width,
+          imageData.height,
+          {
+            inversionAttempts: "attemptBoth",
+          }
+        );
+
+        if (!result) {
+          setScanError(
+            "No QR code was detected. Upload a clear image containing the complete QR code, including its white border."
+          );
+          return;
+        }
+
+        console.log("Decoded QR content:", result.data);
+
+        handleDecodedValue(result.data);
+      } finally {
+        URL.revokeObjectURL(imageUrl);
       }
+    } catch (error) {
+      console.error("QR image processing failed:", error);
+
+      setScanError(
+        error instanceof Error
+          ? error.message
+          : "Unable to process the selected QR image."
+      );
     }
   }
 
-  // Standard UPI payment URI used to generate this user's QR code.
+  // Generate the logged-in user's UPI payment URI.
   const paymentUri = profile?.upiId
-    ? `upi://pay?pa=${encodeURIComponent(profile.upiId)}&pn=${encodeURIComponent(
-        profile.fullName || "UPI User"
-      )}`
+    ? `upi://pay?pa=${encodeURIComponent(
+        profile.upiId
+      )}&pn=${encodeURIComponent(profile.fullName || "UPI User")}`
     : "";
 
+  // Share the user's UPI details.
   async function shareMyQr() {
     if (!profile?.upiId || !paymentUri) return;
 
-    const shareText = `Pay ${profile.fullName || "me"} using my UPI ID: ${profile.upiId}\n${paymentUri}`;
+    const shareText = `Pay ${
+      profile.fullName || "me"
+    } using my UPI ID: ${profile.upiId}\n${paymentUri}`;
 
     try {
       setSharing(true);
 
-      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.share === "function"
+      ) {
         await navigator.share({
           title: "My UPI QR",
           text: shareText,
         });
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(shareText);
-        window.alert("Your UPI payment details have been copied.");
+
+        window.alert(
+          "Your UPI payment details have been copied."
+        );
       } else {
-        throw new Error("Sharing and clipboard access are unavailable in this browser.");
+        throw new Error(
+          "Sharing and clipboard access are unavailable in this browser."
+        );
       }
     } catch (error) {
-      if (error instanceof Error && error.name !== "AbortError") {
-        setProfileError(error.message || "Unable to share your UPI details.");
+      if (
+        error instanceof Error &&
+        error.name !== "AbortError"
+      ) {
+        setProfileError(
+          error.message || "Unable to share your UPI details."
+        );
       }
     } finally {
       setSharing(false);
@@ -324,11 +464,15 @@ export default function ScanPage() {
             >
               ←
             </Link>
-            <h1 className="text-xl font-bold text-[#071b35]">Scan &amp; Pay</h1>
+
+            <h1 className="text-xl font-bold text-[#071b35]">
+              Scan &amp; Pay
+            </h1>
           </div>
         </header>
 
         <section className="flex-1 px-6 pb-8">
+          {/* Scan QR / My QR tabs */}
           <div className="flex rounded-xl bg-slate-100 p-1">
             <button
               type="button"
@@ -341,6 +485,7 @@ export default function ScanPage() {
             >
               Scan QR
             </button>
+
             <button
               type="button"
               onClick={() => setMode("myqr")}
@@ -356,17 +501,21 @@ export default function ScanPage() {
 
           {mode === "scan" ? (
             <>
+              {/* Live camera scanner */}
               <div className="relative mt-5 aspect-square max-h-97.5 w-full overflow-hidden rounded-2xl bg-[#101010] shadow-lg">
                 <div
                   id="qr-reader"
                   className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover [&_img]:hidden"
                 />
 
-                {/* Scanner frame overlay */}
+                {/* Scanner frame */}
                 <div className="pointer-events-none absolute inset-10">
                   <div className="absolute left-0 top-0 h-12 w-12 rounded-tl-xl border-l-4 border-t-4 border-white" />
+
                   <div className="absolute right-0 top-0 h-12 w-12 rounded-tr-xl border-r-4 border-t-4 border-white" />
+
                   <div className="absolute bottom-0 left-0 h-12 w-12 rounded-bl-xl border-b-4 border-l-4 border-white" />
+
                   <div className="absolute bottom-0 right-0 h-12 w-12 rounded-br-xl border-b-4 border-r-4 border-white" />
                 </div>
 
@@ -377,13 +526,14 @@ export default function ScanPage() {
                 </div>
               </div>
 
-              {/* Hidden element used by html5-qrcode for image scanning. */}
+              {/* Hidden scanner container retained for compatibility */}
               <div
                 id="qr-file-reader"
                 className="fixed left-[-10000px] top-0 h-75 w-75"
                 aria-hidden="true"
               />
 
+              {/* Camera and image upload buttons */}
               <div className="mt-5 flex justify-center gap-8">
                 <button
                   type="button"
@@ -416,46 +566,57 @@ export default function ScanPage() {
                 />
               </div>
 
+              {/* Camera error */}
               {cameraError && (
                 <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                   {cameraError}
+
                   <p className="mt-1 text-xs">
-                    Camera access generally requires localhost or HTTPS. You can
-                    also try uploading a QR image.
+                    Camera access generally requires localhost or
+                    HTTPS. Check your browser permissions or upload a
+                    QR image instead.
                   </p>
                 </div>
               )}
 
+              {/* Scan error */}
               {scanError && (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div
+                  role="alert"
+                  className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                >
                   {scanError}
                 </div>
               )}
 
               <p className="mt-4 text-center text-xs text-slate-500">
-                Align a UPI QR code within the frame, or choose an image
-                containing a QR code.
+                Align a UPI QR code within the frame, or choose an
+                image containing a QR code.
               </p>
 
+              {/* Offline payment information */}
               <div className="mt-6 rounded-xl border border-green-100 bg-green-50 p-4">
                 <div className="flex gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100">
                     <span className="text-green-600">📶</span>
                   </div>
+
                   <div>
                     <p className="text-sm font-semibold text-[#071b35]">
                       Offline payments supported
                     </p>
+
                     <p className="mt-1 text-xs leading-4 text-slate-500">
-                      QR scanning identifies a recipient. Completing an offline
-                      payment still depends on your app&apos;s offline packet and
-                      synchronization logic.
+                      QR scanning identifies a recipient. Completing
+                      an offline payment depends on your app&apos;s
+                      offline packet and synchronization logic.
                     </p>
                   </div>
                 </div>
               </div>
             </>
           ) : (
+            /* My QR screen */
             <div className="mt-6 flex flex-col items-center">
               <p className="text-center text-sm text-slate-500">
                 Let someone scan your QR to pay you
@@ -468,6 +629,7 @@ export default function ScanPage() {
               ) : profileError ? (
                 <div className="mt-6 w-full rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                   {profileError}
+
                   <button
                     type="button"
                     onClick={() => window.location.reload()}
@@ -493,6 +655,7 @@ export default function ScanPage() {
                   <h2 className="mt-5 text-lg font-bold text-[#071b35]">
                     {profile.upiId}
                   </h2>
+
                   <p className="mt-1 text-sm text-slate-500">
                     {profile.fullName || "UPI User"}
                   </p>
