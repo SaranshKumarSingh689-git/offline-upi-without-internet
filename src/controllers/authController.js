@@ -62,6 +62,12 @@ const login = async (req, res) => {
         const { email, password } = req.body;
 
         const user = await User.findOne({ email }).select("+password");
+        if (!email || !password) {
+  return res.status(400).json({
+    success: false,
+    message: "Email and password are required"
+  });
+}
 
         if (!user) {
             return res.status(400).json({

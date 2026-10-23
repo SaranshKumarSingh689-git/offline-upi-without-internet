@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+
 const transactionSchema = new mongoose.Schema(
     {
         sender: {
@@ -6,16 +7,19 @@ const transactionSchema = new mongoose.Schema(
             ref: "User",
             required: true
         },
+
         receiver: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
             required: true
         },
+
         amount: {
             type: Number,
             required: true,
             min: 1
         },
+
         status: {
             type: String,
             enum: [
@@ -28,32 +32,43 @@ const transactionSchema = new mongoose.Schema(
             ],
             default: "PENDING"
         },
+
         offline: {
             type: Boolean,
             default: false
         },
-        // Normal + offline transaction ID
+
         transactionId: {
             type: String,
             required: true,
             unique: true
         },
+
         // Offline packet information
         packetId: {
             type: String,
             unique: true,
             sparse: true
         },
+
         nonce: {
             type: String,
             sparse: true
         },
+
         signature: {
             type: String
         },
+
         packetTimestamp: {
             type: Date
         },
+
+        // Store the complete signed packet for verification during sync.
+        packetData: {
+            type: mongoose.Schema.Types.Mixed
+        },
+
         syncedAt: {
             type: Date
         }
@@ -62,19 +77,24 @@ const transactionSchema = new mongoose.Schema(
         timestamps: true
     }
 );
-// Faster transaction history queries
+
+// Transaction history indexes
 transactionSchema.index({
     sender: 1,
     createdAt: -1
 });
+
 transactionSchema.index({
     receiver: 1,
     createdAt: -1
 });
+
 transactionSchema.index({
     status: 1
 });
+
 module.exports = mongoose.model(
     "Transaction",
     transactionSchema
 );
+
