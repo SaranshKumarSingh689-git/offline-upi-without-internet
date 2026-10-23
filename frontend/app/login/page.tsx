@@ -46,16 +46,14 @@ export default function LoginPage() {
       // Redirect to home/dashboard
       router.push("/home");
     } catch (error) {
-      console.error("Login error:", error);
-
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Login failed. Please try again."
-      );
-    } finally {
-      setLoading(false);
-    }
+  setError(
+    error instanceof Error
+      ? error.message
+      : "Login failed. Please try again."
+  );
+} finally {
+  setLoading(false);
+}
   };
 
   return (

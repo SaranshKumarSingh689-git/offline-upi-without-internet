@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiRequest } from "@/lib/api";
 
@@ -23,6 +23,7 @@ interface TransactionResponse {
 
 export default function SendMoneyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Recipient state
   const [recipientInput, setRecipientInput] = useState("");
@@ -39,7 +40,20 @@ export default function SendMoneyPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Populate recipient UPI ID from a scanned QR code
+  useEffect(() => {
+    const upiId = searchParams.get("upiId");
+
+    if (upiId) {
+      setRecipientInput(upiId);
+      setRecipient(null);
+      setError("");
+      setSuccess("");
+    }
+  }, [searchParams]);
+
   // Find recipient using their UPI ID
+ // Find recipient using their UPI ID
 const findRecipient = async () => {
   const upiId = recipientInput.trim();
 
@@ -53,6 +67,8 @@ const findRecipient = async () => {
   }
 
   setIsFindingRecipient(true);
+
+  // Keep the rest of your existing try/catch/finally logic unchanged.
 
   try {
     const data = await apiRequest(
