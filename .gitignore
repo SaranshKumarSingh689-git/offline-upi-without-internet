@@ -6,3 +6,6 @@ frontend/git-backup/
 # Frontend environment files
 frontend/.env*
 !frontend/.env.example
+
+# Temporary QR test image
+frontend/test-qr.png
